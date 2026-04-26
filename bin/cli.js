@@ -15,9 +15,8 @@
  *   philips-ac0650 reset clean        # reset clean filter timer
  *   philips-ac0650 reset hepa         # reset HEPA filter timer
  *   philips-ac0650 monitor            # live status stream
- *   philips-ac0650 bridge             # start HA MQTT discovery bridge
- *   philips-ac0650 serve              # start HTTP API server
- *   philips-ac0650 homebridge         # print Homebridge setup instructions
+ *   philips-ac0650 serve [--port N]   # HTTP REST API server
+ *   philips-ac0650 ha-bridge [opts]   # Home Assistant MQTT discovery bridge
  */
 
 "use strict";
@@ -45,41 +44,25 @@ function printUsage() {
   console.log("  reset clean        Reset clean filter timer");
   console.log("  reset hepa         Reset HEPA filter timer");
   console.log("  monitor            Live status stream");
-  console.log("  bridge             Start Home Assistant MQTT discovery bridge");
-  console.log("  serve              Start HTTP API server");
-  console.log("  homebridge         Print Homebridge configuration instructions");
+  console.log("  serve              Start HTTP REST API server");
+  console.log("  ha-bridge          Start Home Assistant MQTT discovery bridge");
   console.log();
   console.log("Options:");
   console.log(
     "  --config <path>    Config file (default: ~/.philips-ac0650/config.json)"
   );
-  console.log(
-    "  --broker <url>     MQTT broker URL for bridge (default: mqtt://localhost:1883)"
-  );
-  console.log(
-    "  --name <name>      Device name for bridge (default: Philips AC0650)"
-  );
-  console.log(
-    "  --port <port>      HTTP server port for serve (default: 8080)"
-  );
-  console.log(
-    "  --host <host>      HTTP server host for serve (default: 0.0.0.0)"
-  );
+  console.log("  --port <N>         HTTP server port (default: 8080)");
+  console.log("  --mqtt-host <host> MQTT broker host for HA bridge (default: localhost)");
+  console.log("  --mqtt-port <N>    MQTT broker port for HA bridge (default: 1883)");
   console.log("  --help, -h         Show this help");
   console.log();
   console.log("First-time setup:");
   console.log("  philips-ac0650 setup");
 }
 
-/**
- * Build a text progress bar.
- * @param {number} percent - 0-100
- * @param {number} width - Bar width in characters
- * @returns {string}
- */
 function progressBar(percent, width) {
   width = width || 10;
-  if (percent == null) return "?".repeat(width);
+  if (percent == null) return "?" .repeat(width);
   const filled = Math.round((percent / 100) * width);
   const empty = width - filled;
   return "█".repeat(filled) + "░".repeat(empty);
@@ -119,26 +102,24 @@ function formatState(state) {
   return lines.join("\n");
 }
 
-function getArg(name) {
-  const idx = args.indexOf(name);
+function getConfigPath() {
+  const idx = args.indexOf("--config");
   if (idx !== -1 && args[idx + 1]) {
     return args[idx + 1];
   }
   return undefined;
 }
 
-function getConfigPath() {
-  return getArg("--config");
+function getArg(flag, defaultValue) {
+  const idx = args.indexOf(flag);
+  if (idx !== -1 && args[idx + 1]) {
+    return args[idx + 1];
+  }
+  return defaultValue;
 }
 
 // ---- One-shot command runner ----
 
-/**
- * Connect, execute a command, wait for confirmation, then disconnect.
- * @param {function} action - receives purifier instance, returns result or promise
- * @param {object} [options]
- * @param {number} [options.waitMs=6000] - How long to wait for state after command
- */
 async function runOneShot(action, options) {
   options = options || {};
   const waitMs = options.waitMs != null ? options.waitMs : 6000;
@@ -157,7 +138,6 @@ async function runOneShot(action, options) {
 
   await purifier.connect();
 
-  // Wait for initial connection
   await new Promise((resolve) => {
     if (purifier.connected) return resolve();
     const check = setInterval(() => {
@@ -166,7 +146,6 @@ async function runOneShot(action, options) {
         resolve();
       }
     }, 200);
-    // Timeout after 15s
     setTimeout(() => {
       clearInterval(check);
       resolve();
@@ -178,7 +157,6 @@ async function runOneShot(action, options) {
     process.exit(1);
   }
 
-  // Execute the action
   const result = await action(purifier);
   if (result && !result.success) {
     console.error("Command failed: " + (result.error || "unknown error"));
@@ -186,15 +164,11 @@ async function runOneShot(action, options) {
     process.exit(1);
   }
 
-  // Wait for state update
   await new Promise((resolve) => setTimeout(resolve, waitMs));
 
-  // Print final state
   console.log(formatState(purifier.getState()));
 
   purifier.disconnect();
-
-  // Force exit after cleanup
   setTimeout(() => process.exit(0), 500);
 }
 
@@ -321,7 +295,6 @@ async function main() {
     console.log("Connecting to purifier... (Ctrl+C to stop)");
     await purifier.connect();
 
-    // Graceful shutdown
     process.on("SIGINT", () => {
       console.log("\nDisconnecting...");
       purifier.disconnect();
@@ -334,118 +307,48 @@ async function main() {
     return;
   }
 
-  // ---- New commands ----
-
-  if (command === "bridge") {
-    const { HABridge } = require("../lib/ha-bridge");
-    const configPath = getConfigPath();
-    const brokerUrl = getArg("--broker") || "mqtt://localhost:1883";
-    const deviceName = getArg("--name") || "Philips AC0650";
-
-    const purifier = new PhilipsPurifier({ configPath });
-
-    purifier.on("error", (err) => {
-      console.error("[" + new Date().toLocaleTimeString() + "] Purifier error: " + err.message);
-    });
-
-    const bridge = new HABridge({ purifier, brokerUrl, deviceName });
-
-    bridge.on("error", (err) => {
-      console.error("[" + new Date().toLocaleTimeString() + "] Bridge error: " + err.message);
-    });
-
-    bridge.on("connected", () => {
-      console.log("[" + new Date().toLocaleTimeString() + "] Connected to MQTT broker: " + brokerUrl);
-    });
-
-    purifier.on("connected", () => {
-      console.log("[" + new Date().toLocaleTimeString() + "] Connected to purifier cloud");
-    });
-
-    purifier.on("disconnected", () => {
-      console.log("[" + new Date().toLocaleTimeString() + "] Purifier cloud disconnected");
-    });
-
-    purifier.on("state", (state) => {
-      const power = state.power ? "ON" : "OFF";
-      const mode = state.modeName || "?";
-      console.log("[" + new Date().toLocaleTimeString() + "] State: power=" + power + " mode=" + mode + " speed=" + state.fanSpeed);
-    });
-
-    console.log("Starting Home Assistant MQTT Discovery Bridge...");
-    console.log("  Broker: " + brokerUrl);
-    console.log("  Device: " + deviceName);
-    console.log();
-
-    await purifier.connect();
-    await bridge.start();
-
-    console.log("Bridge running. Press Ctrl+C to stop.");
-    console.log();
-
-    // Graceful shutdown
-    process.on("SIGINT", async () => {
-      console.log("\nStopping bridge...");
-      await bridge.stop();
-      purifier.disconnect();
-      setTimeout(() => process.exit(0), 500);
-    });
-    process.on("SIGTERM", async () => {
-      await bridge.stop();
-      purifier.disconnect();
-      setTimeout(() => process.exit(0), 500);
-    });
-    return;
-  }
-
   if (command === "serve") {
     const { HttpServer } = require("../lib/http-server");
     const configPath = getConfigPath();
-    const port = parseInt(getArg("--port") || "8080", 10);
-    const host = getArg("--host") || "0.0.0.0";
-
+    const port = parseInt(getArg("--port", "8080"), 10);
     const purifier = new PhilipsPurifier({ configPath });
 
     purifier.on("error", (err) => {
-      console.error("[" + new Date().toLocaleTimeString() + "] Purifier error: " + err.message);
+      console.error("Purifier error: " + err.message);
     });
 
-    purifier.on("connected", () => {
-      console.log("[" + new Date().toLocaleTimeString() + "] Connected to purifier cloud");
-    });
-
-    purifier.on("disconnected", () => {
-      console.log("[" + new Date().toLocaleTimeString() + "] Purifier cloud disconnected");
-    });
-
-    const server = new HttpServer({ purifier, port, host });
-
-    console.log("Starting HTTP API server...");
-
+    console.log("Connecting to purifier...");
     await purifier.connect();
-    await server.start();
 
-    console.log("HTTP API listening on http://" + host + ":" + port);
+    await new Promise((resolve) => {
+      if (purifier.connected) return resolve();
+      const check = setInterval(() => {
+        if (purifier.connected) {
+          clearInterval(check);
+          resolve();
+        }
+      }, 200);
+      setTimeout(() => {
+        clearInterval(check);
+        resolve();
+      }, 15000);
+    });
+
+    const server = new HttpServer({ purifier, port });
+    await server.start();
+    console.log("HTTP API server running on http://0.0.0.0:" + port);
     console.log();
     console.log("Endpoints:");
-    console.log("  GET  /status         Current state");
-    console.log("  GET  /health         Health check");
-    console.log('  POST /power          { "on": true|false }');
-    console.log('  POST /speed          { "speed": 1-16 }');
-    console.log('  POST /mode           { "mode": "auto"|"sleep"|"turbo" }');
-    console.log("  POST /reset/clean    Reset clean filter timer");
-    console.log("  POST /reset/hepa     Reset HEPA filter timer");
-    console.log();
-    console.log("Press Ctrl+C to stop.");
+    console.log("  GET  /status       Current state");
+    console.log("  GET  /health       Health check");
+    console.log('  POST /power        {"on": true|false}');
+    console.log('  POST /speed        {"speed": 1-16}');
+    console.log('  POST /mode         {"mode": "auto"|"sleep"|"turbo"}');
+    console.log("  POST /reset/clean  Reset clean filter timer");
+    console.log("  POST /reset/hepa   Reset HEPA filter timer");
 
-    // Graceful shutdown
     process.on("SIGINT", async () => {
-      console.log("\nStopping server...");
-      await server.stop();
-      purifier.disconnect();
-      setTimeout(() => process.exit(0), 500);
-    });
-    process.on("SIGTERM", async () => {
+      console.log("\nShutting down...");
       await server.stop();
       purifier.disconnect();
       setTimeout(() => process.exit(0), 500);
@@ -453,42 +356,46 @@ async function main() {
     return;
   }
 
-  if (command === "homebridge") {
-    console.log("Homebridge Plugin: Philips AC0650 Air Purifier");
-    console.log("=".repeat(50));
-    console.log();
-    console.log("This package includes a Homebridge dynamic platform plugin");
-    console.log("that exposes the purifier as a HomeKit Air Purifier accessory.");
-    console.log();
-    console.log("Setup:");
-    console.log();
-    console.log("1. Install Homebridge (if not already):");
-    console.log("   npm install -g homebridge");
-    console.log();
-    console.log("2. Link this plugin to Homebridge:");
-    console.log("   npm link   # from the philips-ac0650-mqtt directory");
-    console.log();
-    console.log("3. Add this to your Homebridge config.json platforms array:");
-    console.log();
-    console.log('   {');
-    console.log('     "platform": "PhilipsAC0650",');
-    console.log('     "name": "Air Purifier",');
-    console.log('     "configPath": "~/.philips-ac0650/config.json"');
-    console.log('   }');
-    console.log();
-    console.log("4. Restart Homebridge:");
-    console.log("   sudo systemctl restart homebridge");
-    console.log("   # or: homebridge -D");
-    console.log();
-    console.log("The purifier will appear in HomeKit as an Air Purifier with:");
-    console.log("  - Power on/off");
-    console.log("  - Fan speed (0-100%)");
-    console.log("  - Auto/Manual mode");
-    console.log("  - Clean filter status and reset");
-    console.log("  - HEPA filter status and reset");
-    console.log();
-    console.log("Make sure you have run 'philips-ac0650 setup' first to");
-    console.log("create the config file.");
+  if (command === "ha-bridge") {
+    const { HABridge } = require("../lib/ha-bridge");
+    const configPath = getConfigPath();
+    const mqttHost = getArg("--mqtt-host", "localhost");
+    const mqttPort = parseInt(getArg("--mqtt-port", "1883"), 10);
+    const purifier = new PhilipsPurifier({ configPath });
+
+    purifier.on("error", (err) => {
+      console.error("Purifier error: " + err.message);
+    });
+
+    console.log("Connecting to purifier...");
+    await purifier.connect();
+
+    await new Promise((resolve) => {
+      if (purifier.connected) return resolve();
+      const check = setInterval(() => {
+        if (purifier.connected) {
+          clearInterval(check);
+          resolve();
+        }
+      }, 200);
+      setTimeout(() => {
+        clearInterval(check);
+        resolve();
+      }, 15000);
+    });
+
+    const bridge = new HABridge({ purifier, mqttHost, mqttPort });
+    await bridge.start();
+    console.log("Home Assistant MQTT bridge running");
+    console.log("MQTT broker: " + mqttHost + ":" + mqttPort);
+    console.log("Discovery prefix: homeassistant");
+
+    process.on("SIGINT", () => {
+      console.log("\nShutting down...");
+      bridge.stop();
+      purifier.disconnect();
+      setTimeout(() => process.exit(0), 500);
+    });
     return;
   }
 
