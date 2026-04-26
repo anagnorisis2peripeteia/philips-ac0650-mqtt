@@ -30,13 +30,17 @@ Run the setup wizard to link your Philips account:
 philips-ac0650 setup
 ```
 
-This will:
-1. Show you an OAuth login URL to open in your browser
-2. Ask you to log in with your Philips Air+ credentials
-3. Ask you to paste the redirect URL (the browser will show an error page -- that is expected)
-4. Exchange the auth code for tokens and save your config
+The wizard will give you a URL to open in Chrome or Edge. Here's what to do:
 
-Your credentials are stored locally at `~/.philips-ac0650/config.json`.
+1. **Before opening the URL** — press `F12`, go to the **Network** tab, and tick **Preserve log**
+2. Paste the URL into your address bar and log in with your Philips Air+ account
+3. After login you'll see a "site can't be reached" error — that's expected
+4. Back in the Network tab, type `loginredirect` in the filter box
+5. Click the `302` request that appears → **Headers** tab → **Response Headers**
+6. Find the `location` header — its value starts with `com.philips.air://loginredirect?code=...`
+7. Copy that full value and paste it into the terminal when prompted
+
+Your config is stored at `~/.philips-ac0650/config.json`.
 
 ## CLI Commands
 
