@@ -1,7 +1,7 @@
 {
   "name": "philips-ac0650-mqtt",
-  "version": "1.0.0",
-  "description": "Control Philips AC0650 air purifiers via cloud MQTT",
+  "version": "1.1.0",
+  "description": "Control Philips AC0650 air purifiers via cloud MQTT with Home Assistant, Homebridge, and HTTP API integrations",
   "main": "lib/purifier.js",
   "bin": {
     "philips-ac0650": "bin/cli.js"
@@ -16,15 +16,19 @@
     "ac0650",
     "smart-home",
     "iot",
-    "versuni"
+    "versuni",
+    "homebridge-plugin",
+    "home-assistant",
+    "homekit"
   ],
   "author": "Cameron Beeley",
   "license": "MIT",
   "dependencies": {
+    "mqtt": "^5.0.0",
     "ws": "^8.0.0"
   },
   "engines": {
-    "node": ">=16.0.0"
+    "node": ">=18.0.0"
   },
   "repository": {
     "type": "git",

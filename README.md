@@ -2,6 +2,8 @@
 
 Control Philips AC0650 air purifiers from the command line or programmatically via the Versuni cloud MQTT API. This package reverse-engineers the same protocol used by the Philips Air+ mobile app, connecting over MQTT-over-WebSocket-over-TLS to AWS IoT with a custom authorizer.
 
+Includes integrations for **Home Assistant** (MQTT Discovery), **Homebridge** (HomeKit), and a standalone **HTTP REST API**.
+
 ## Supported Models
 
 - **Philips AC0650/10** (confirmed)
@@ -9,7 +11,7 @@ Control Philips AC0650 air purifiers from the command line or programmatically v
 
 ## Prerequisites
 
-- **Node.js 18+** (16+ works but 18+ recommended for native fetch support)
+- **Node.js 18+**
 - **Philips Air+ account** with your purifier already set up in the app
 
 ## Quick Start
@@ -62,6 +64,15 @@ philips-ac0650 reset hepa     # Reset HEPA filter timer (after replacing)
 
 # Live monitoring (stays connected, prints state changes)
 philips-ac0650 monitor
+
+# Home Assistant bridge (stays running)
+philips-ac0650 bridge --broker mqtt://localhost:1883 --name "Air Purifier"
+
+# HTTP API server (stays running)
+philips-ac0650 serve --port 8080 --host 0.0.0.0
+
+# Homebridge setup instructions
+philips-ac0650 homebridge
 ```
 
 ### Status Output
@@ -77,6 +88,135 @@ Connected: yes
 
 ```bash
 philips-ac0650 status --config /path/to/config.json
+```
+
+## Home Assistant Integration
+
+The HA bridge connects to both the Philips cloud and a local MQTT broker, publishing auto-discovery topics so the purifier appears natively in Home Assistant.
+
+### Setup
+
+1. Make sure you have an MQTT broker running (e.g. Mosquitto) and configured in Home Assistant.
+
+2. Run the bridge:
+
+```bash
+philips-ac0650 bridge --broker mqtt://your-broker:1883 --name "Air Purifier"
+```
+
+3. The purifier will automatically appear in Home Assistant with:
+   - **Fan entity** -- power on/off, speed percentage, preset modes (auto/sleep/turbo)
+   - **Filter sensors** -- clean filter %, HEPA filter %, hours remaining for each
+   - **Reset buttons** -- reset clean filter timer, reset HEPA filter timer
+
+### MQTT Topics
+
+| Topic | Description |
+|-------|-------------|
+| `homeassistant/fan/philips_ac0650_{id}/config` | Fan discovery |
+| `homeassistant/sensor/philips_ac0650_{id}_filter_*/config` | Sensor discovery |
+| `homeassistant/button/philips_ac0650_{id}_reset_*/config` | Button discovery |
+| `philips_ac0650/state` | Current state (JSON) |
+| `philips_ac0650/set` | Command topic |
+| `philips_ac0650/availability` | Online/offline status |
+
+## Homebridge Integration
+
+The Homebridge plugin exposes the purifier as a HomeKit Air Purifier accessory.
+
+### Setup
+
+1. Install Homebridge if you have not already:
+
+```bash
+npm install -g homebridge
+```
+
+2. Link this plugin:
+
+```bash
+cd /path/to/philips-ac0650-mqtt
+npm link
+```
+
+3. Add the platform to your Homebridge `config.json`:
+
+```json
+{
+  "platforms": [
+    {
+      "platform": "PhilipsAC0650",
+      "name": "Air Purifier",
+      "configPath": "~/.philips-ac0650/config.json"
+    }
+  ]
+}
+```
+
+4. Restart Homebridge.
+
+### HomeKit Features
+
+- **Air Purifier** -- power on/off, auto/manual mode, rotation speed (0-100%)
+- **Clean Filter** -- filter life level, change indication (< 10%), reset
+- **HEPA Filter** -- filter life level, change indication (< 10%), reset
+
+## HTTP API
+
+A lightweight REST API server using Node.js native `http` module.
+
+### Setup
+
+```bash
+philips-ac0650 serve --port 8080 --host 0.0.0.0
+```
+
+### Endpoints
+
+| Method | Path | Body | Description |
+|--------|------|------|-------------|
+| GET | `/status` | -- | Current state JSON |
+| GET | `/health` | -- | `{ ok, connected, uptime }` |
+| POST | `/power` | `{ "on": true\|false }` | Power on/off |
+| POST | `/speed` | `{ "speed": 1-16 }` | Set fan speed |
+| POST | `/mode` | `{ "mode": "auto"\|"sleep"\|"turbo" }` | Set mode |
+| POST | `/reset/clean` | -- | Reset clean filter timer |
+| POST | `/reset/hepa` | -- | Reset HEPA filter timer |
+
+All responses are JSON. CORS headers are included for browser access. Returns 503 if the purifier is disconnected, 400 for bad requests.
+
+### Example
+
+```bash
+# Get status
+curl http://localhost:8080/status
+
+# Turn on
+curl -X POST -H "Content-Type: application/json" -d '{"on": true}' http://localhost:8080/power
+
+# Set to auto mode
+curl -X POST -H "Content-Type: application/json" -d '{"mode": "auto"}' http://localhost:8080/mode
+```
+
+## Docker
+
+Run the HA bridge 24/7 with Docker Compose:
+
+```yaml
+version: '3'
+services:
+  philips-bridge:
+    image: node:18-alpine
+    volumes:
+      - ./config.json:/root/.philips-ac0650/config.json
+    command: npx philips-ac0650-mqtt bridge --broker mqtt://mosquitto:1883
+    restart: unless-stopped
+```
+
+Place your `~/.philips-ac0650/config.json` in the same directory as the compose file, then:
+
+```bash
+docker-compose up -d
 ```
 
 ## Library Usage
@@ -160,7 +300,7 @@ purifier.disconnect();
 6. **Auto-reconnect** -- Exponential backoff (5s to 2min) on connection loss
 7. **Command lock** -- After sending a command, ignores status updates for 5 seconds to prevent UI bouncing
 
-### MQTT Topics
+### Cloud MQTT Topics
 
 | Topic | Direction | Description |
 |-------|-----------|-------------|
@@ -193,6 +333,9 @@ The keepalive is set to 30 seconds (not the 4s documented in some references). I
 
 ### "WebSocket creation failed"
 Ensure you have network access to `ats.prod.eu-da.iot.versuni.com:443`. Some corporate firewalls may block this.
+
+### Bridge: "Failed to connect to MQTT broker"
+Check that your MQTT broker is running and accessible at the specified URL. For Mosquitto: `sudo systemctl status mosquitto`.
 
 ## Credits
 
