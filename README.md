@@ -125,7 +125,7 @@ curl -X POST http://localhost:8080/mode -d '{"mode": "sleep"}'
 Bridges the purifier to Home Assistant via MQTT auto-discovery. Requires a local MQTT broker (e.g., Mosquitto) already configured in Home Assistant.
 
 ```bash
-philips-ac0650 ha-bridge --mqtt-host localhost --mqtt-port 1883
+philips-ac0650 ha-bridge --mqtt-host localhost --mqtt-port 1883 --mqtt-user your-user --mqtt-pass your-pass
 ```
 
 This publishes Home Assistant discovery configs under `homeassistant/` and creates:
@@ -151,6 +151,8 @@ const bridge = new HABridge({
   purifier,
   mqttHost: 'localhost',
   mqttPort: 1883,
+  mqttUser: 'your-user',
+  mqttPass: 'your-pass',
 });
 await bridge.start();
 ```
