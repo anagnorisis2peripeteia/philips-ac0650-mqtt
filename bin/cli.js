@@ -54,6 +54,8 @@ function printUsage() {
   console.log("  --port <N>         HTTP server port (default: 8080)");
   console.log("  --mqtt-host <host> MQTT broker host for HA bridge (default: localhost)");
   console.log("  --mqtt-port <N>    MQTT broker port for HA bridge (default: 1883)");
+  console.log("  --mqtt-user <user> MQTT broker username for HA bridge");
+  console.log("  --mqtt-pass <pass> MQTT broker password for HA bridge");
   console.log("  --help, -h         Show this help");
   console.log();
   console.log("First-time setup:");
@@ -361,6 +363,8 @@ async function main() {
     const configPath = getConfigPath();
     const mqttHost = getArg("--mqtt-host", "localhost");
     const mqttPort = parseInt(getArg("--mqtt-port", "1883"), 10);
+    const mqttUser = getArg("--mqtt-user");
+    const mqttPass = getArg("--mqtt-pass");
     const purifier = new PhilipsPurifier({ configPath });
 
     purifier.on("error", (err) => {
@@ -384,7 +388,13 @@ async function main() {
       }, 15000);
     });
 
-    const bridge = new HABridge({ purifier, mqttHost, mqttPort });
+    const bridge = new HABridge({
+      purifier,
+      mqttHost,
+      mqttPort,
+      mqttUser,
+      mqttPass,
+    });
     await bridge.start();
     console.log("Home Assistant MQTT bridge running");
     console.log("MQTT broker: " + mqttHost + ":" + mqttPort);
