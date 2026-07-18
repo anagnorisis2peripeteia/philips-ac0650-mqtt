@@ -14,12 +14,15 @@ Control Philips AC0650 air purifiers from the command line or programmatically v
 
 ## Quick Start
 
-```bash
-# Install globally
-npm install -g philips-ac0650-mqtt
+> **Not yet on npm.** Install straight from GitHub for now — `npm` supports git sources, so
+> the global CLI and `npx` work exactly the same.
 
-# Or run directly with npx
-npx philips-ac0650-mqtt setup
+```bash
+# Install globally from GitHub
+npm install -g github:anagnorisis2peripeteia/philips-ac0650-mqtt
+
+# Or run directly with npx (also from GitHub)
+npx github:anagnorisis2peripeteia/philips-ac0650-mqtt setup
 ```
 
 ### First-Time Setup
